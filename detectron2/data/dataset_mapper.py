@@ -9,6 +9,11 @@ from detectron2.config import configurable
 
 from . import detection_utils as utils
 from . import transforms as T
+import h5py
+import io
+from PIL import Image, ImageOps
+import pycocotools
+import random
 
 """
 This file contains the default mapping that's applied to "dataset dicts".
@@ -149,9 +154,70 @@ class DatasetMapper:
         Returns:
             dict: a format that builtin models in detectron2 accept
         """
-        dataset_dict = copy.deepcopy(dataset_dict)  # it will be modified by code below
-        # USER: Write your own image loading if it's not from a file
-        image = utils.read_image(dataset_dict["file_name"], format=self.image_format)
+        # ---------------------------------------------------------------------------------------------------------- #
+        # MCS_DATALOADER_UPDATE
+        dataset_dict_cpy = copy.deepcopy(dataset_dict)  # it will be modified by code below
+        ## USER: Write your own image loading if it's not from a file
+
+        TRAIN_HDF5_ROOT_DIR = "/home/kashis/Desktop/Eval7/Mask2Former/physion_dataset/HDF5_collision_split/HDF5/HDF5_train"
+        hdf5_file = TRAIN_HDF5_ROOT_DIR + '/' + dataset_dict_cpy["hdf5_file"]
+        hdf5_obj = h5py.File(hdf5_file, 'r')
+        rnd_frame = random.sample(hdf5_obj["frames"].keys(), 1)[0]
+
+        f_obj = hdf5_obj["frames"]
+        phys_rgb = f_obj[rnd_frame]["images"]["_img"][:]
+        phys_image = Image.open(io.BytesIO(phys_rgb))
+        phys_image = ImageOps.mirror(phys_image)
+        reqd_rgb_img = utils.read_image(phys_image, format=self.image_format)
+
+        img_width = reqd_rgb_img.shape[0]
+        img_height = reqd_rgb_img.shape[1]
+        s_obj = hdf5_obj["static"]
+        num_segments_in_img = len(s_obj["object_segmentation_colors"][:])
+        anno_list = []
+
+        for seg_id in range(num_segments_in_img):
+            seg_color = s_obj["object_segmentation_colors"][seg_id]
+            seg = f_obj[rnd_frame]["images"]["_id"][:]
+            seg_image = Image.open(io.BytesIO(seg))
+            seg_image = ImageOps.mirror(seg_image)
+            seg_numpy_arr = np.array(seg_image)
+            seg_mask = (seg_numpy_arr == seg_color).all(-1)
+            seg_mask = seg_mask.astype(np.uint8)
+            if not np.any(seg_mask):
+                # NOTE: Some error in data for pilot_dominoes_0mid_d3chairs_o1plants_tdwroom_0001.hdf5, final seg mask empty
+                continue
+            a = np.where(seg_mask != 0)
+            height = np.max(a[0]) - np.min(a[0])
+            width = np.max(a[1]) - np.min(a[1])
+            top_left = (np.min(a[1]), np.min(a[0]))
+            bbox = [top_left[0], top_left[1], width, height]
+            rle = pycocotools.mask.encode(np.asarray(seg_mask, order="F"))
+        
+            anno_dict = {
+                    "bbox": bbox,
+                    "bbox_mode": 1,
+                    "category_id": 0,
+                    "segmentation": {
+                        "size": rle["size"],
+                        "counts": rle["counts"]
+                    }
+            }
+            anno_list.append(anno_dict)              
+
+        dataset_dict = {
+            "height": img_height,
+            "width": img_width,
+            "image_id": dataset_dict_cpy["hdf5_file"].split(".hdf5")[0] + "_" + rnd_frame,
+            "annotations": anno_list,
+            "hdf5_file": dataset_dict_cpy["hdf5_file"]
+        }
+        image = reqd_rgb_img
+        
+        # dataset_dict = copy.deepcopy(dataset_dict)  # it will be modified by code below
+        # image = utils.read_image(dataset_dict["file_name"], format=self.image_format)
+        # ---------------------------------------------------------------------------------------------------------- #
+
         utils.check_image_size(dataset_dict, image)
 
         # USER: Remove if you don't do semantic/panoptic segmentation.

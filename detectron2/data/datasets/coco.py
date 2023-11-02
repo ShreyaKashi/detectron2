@@ -343,6 +343,7 @@ def convert_to_coco_dict(dataset_name):
     coco_annotations = []
 
     for image_id, image_dict in enumerate(dataset_dicts):
+        # TODO: Change coco_image dict values for inference
         coco_image = {
             "id": image_dict.get("image_id", image_id),
             "width": int(image_dict["width"]),

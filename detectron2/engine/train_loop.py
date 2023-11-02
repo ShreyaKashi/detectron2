@@ -407,6 +407,7 @@ class SimpleTrainer(TrainerBase):
             metrics_dict = {
                 k: np.mean([x[k] for x in all_metrics_dict]) for k in all_metrics_dict[0].keys()
             }
+            # Losses
             total_losses_reduced = sum(metrics_dict.values())
             if not np.isfinite(total_losses_reduced):
                 raise FloatingPointError(
