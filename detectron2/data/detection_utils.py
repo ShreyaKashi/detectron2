@@ -162,7 +162,7 @@ def _apply_exif_orientation(image):
         return image.transpose(method)
     return image
 
-
+# PHYSION UPDATES
 # def read_image(image, format=None):
 #     """
 #     Read an image into the given format.
